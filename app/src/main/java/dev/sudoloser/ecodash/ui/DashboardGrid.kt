@@ -115,8 +115,9 @@ fun DashboardGrid(
                     .verticalScroll(scrollState)
                     .onSizeChanged { containerWidthPx = it.width }
             ) {
-                // Render each widget at its grid position
-                gridItems.forEach { item ->
+                // Render only visible widgets at their grid position
+                val visibleItems = gridItems.filter { it.id == "network" || it.id in enabledPluginIds }
+                visibleItems.forEach { item ->
                     val xPx = item.col * (cellWidth + gapPx)
                     val yPx = item.row * (cellHeight + gapPx) + (if (isEditMode) 0 else 0)
                     val wPx = item.colSpan * cellWidth + (item.colSpan - 1) * gapPx
@@ -332,49 +333,44 @@ fun MinecraftWidgetCard(viewModel: DashboardViewModel, isEditMode: Boolean) {
     val mcIsBedrock by viewModel.mcIsBedrock.collectAsState()
     val mcStatus by viewModel.mcStatus.collectAsState()
     val mcIsLoading by viewModel.mcIsLoading.collectAsState()
+    val fs by viewModel.minecraftFontScale.collectAsState()
 
     Card(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(4.dp),
+        modifier = Modifier.fillMaxSize().padding(4.dp),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (mcStatus?.isOnline == true) Color(0xFF1B3D1B) else Color(0xFF4E1F1F)
-        )
+        colors = CardDefaults.cardColors(containerColor = if (mcStatus?.isOnline == true) Color(0xFF1B3D1B) else Color(0xFF4E1F1F))
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Minecraft", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                if (mcIsLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                } else {
-                    val statusText = if (mcStatus?.isOnline == true) "Online" else "Offline"
-                    val statusColor = if (mcStatus?.isOnline == true) Color(0xFF81C784) else Color(0xFFEF5350)
-                    Text(text = statusText, color = statusColor, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Minecraft", fontSize = (15 * fs).sp, fontWeight = FontWeight.Bold)
+                if (mcIsLoading) CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                else {
+                    val c = if (mcStatus?.isOnline == true) Color(0xFF81C784) else Color(0xFFEF5350)
+                    Text(if (mcStatus?.isOnline == true) "Online" else "Offline", color = c, fontWeight = FontWeight.Bold, fontSize = (12 * fs).sp)
                 }
             }
             Spacer(modifier = Modifier.height(6.dp))
             if (isEditMode) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Size", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    listOf(0.8f to "S", 1.0f to "M", 1.3f to "L").forEach { (scale, label) ->
+                        Button(onClick = { viewModel.minecraftFontScale.value = scale; viewModel.saveWidgetConfigurations() },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (fs == scale) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp), modifier = Modifier.height(28.dp)) { Text(label, fontSize = 11.sp) }
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(value = mcIp, onValueChange = { viewModel.mcIp.value = it; viewModel.saveWidgetConfigurations() }, label = { Text("IP") }, modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = LocalTextStyle.current.copy(fontSize = 12.sp))
-                Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(value = mcPort, onValueChange = { viewModel.mcPort.value = it; viewModel.saveWidgetConfigurations() }, label = { Text("Port") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = LocalTextStyle.current.copy(fontSize = 12.sp))
-                Spacer(modifier = Modifier.height(4.dp))
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Bedrock", fontSize = 11.sp)
-                    Switch(checked = mcIsBedrock, onCheckedChange = { viewModel.mcIsBedrock.value = it; viewModel.saveWidgetConfigurations(); viewModel.refreshMinecraft() }, modifier = Modifier.height(24.dp))
+                    Text("Bedrock", fontSize = (11 * fs).sp)
+                    Switch(checked = mcIsBedrock, onCheckedChange = { viewModel.mcIsBedrock.value = it; viewModel.saveWidgetConfigurations(); viewModel.refreshMinecraft() })
                 }
+            } else if (mcStatus?.isOnline == true) {
+                Text("${mcStatus?.onlinePlayers}/${mcStatus?.maxPlayers}", fontSize = (18 * fs).sp, fontWeight = FontWeight.Bold)
+                Text("MOTD: ${mcStatus?.motd}", fontSize = (10 * fs).sp, color = Color.Gray, maxLines = 2)
             } else {
-                if (mcStatus?.isOnline == true) {
-                    Text("${mcStatus?.onlinePlayers}/${mcStatus?.maxPlayers}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text("MOTD: ${mcStatus?.motd}", fontSize = 10.sp, color = Color.Gray, maxLines = 2)
-                } else {
-                    val errMsg = mcStatus?.error ?: "Cannot resolve connection parameters"
-                    Text("Server is unreachable: $errMsg", fontSize = 11.sp, color = Color(0xFFEF5350))
-                }
+                Text("Server is unreachable: ${mcStatus?.error ?: "Cannot resolve connection parameters"}", fontSize = (11 * fs).sp, color = Color(0xFFEF5350))
             }
         }
     }
@@ -387,33 +383,42 @@ fun NetworkWidgetCard(viewModel: DashboardViewModel, isEditMode: Boolean) {
     val speedTestHistory by viewModel.speedTestHistory.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
     val networkGateway by viewModel.networkGateway.collectAsState()
+    val fs by viewModel.networkFontScale.collectAsState()
 
     Card(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(4.dp),
+        modifier = Modifier.fillMaxSize().padding(4.dp),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text("Network", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Network", fontSize = (15 * fs).sp, fontWeight = FontWeight.Bold)
+            }
             Spacer(modifier = Modifier.height(6.dp))
             if (isEditMode) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Size", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    listOf(0.8f to "S", 1.0f to "M", 1.3f to "L").forEach { (scale, label) ->
+                        Button(onClick = { viewModel.networkFontScale.value = scale; viewModel.saveWidgetConfigurations() },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (fs == scale) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp), modifier = Modifier.height(28.dp)) { Text(label, fontSize = 11.sp) }
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(value = speedTestUrl, onValueChange = { viewModel.speedTestServerUrl.value = it; viewModel.saveWidgetConfigurations() }, label = { Text("Speed Test URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = LocalTextStyle.current.copy(fontSize = 12.sp))
             } else {
-                Text("$connectionState | $networkGateway", fontSize = 11.sp)
+                Text("$connectionState | $networkGateway", fontSize = (11 * fs).sp)
                 Spacer(modifier = Modifier.height(6.dp))
                 if (speedTestState.state != "IDLE" && speedTestState.state != "COMPLETE" && speedTestState.state != "FAILED") {
                     LinearProgressIndicator(progress = speedTestState.progress, modifier = Modifier.fillMaxWidth().height(4.dp))
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text("Down: ${formatBps(speedTestState.downloadSpeed)}  Up: ${formatBps(speedTestState.uploadSpeed)}", fontSize = 10.sp)
+                    Text("Down: ${formatBps(speedTestState.downloadSpeed)}  Up: ${formatBps(speedTestState.uploadSpeed)}", fontSize = (10 * fs).sp)
                 } else {
-                    Button(onClick = { viewModel.runSpeedTest() }, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(8.dp)) { Text("Run", fontSize = 11.sp) }
+                    Button(onClick = { viewModel.runSpeedTest() }, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(8.dp)) { Text("Run", fontSize = (11 * fs).sp) }
                 }
                 if (speedTestHistory.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
                     speedTestHistory.take(2).forEach { log ->
-                        Text(log.second, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text(log.second, fontSize = (9 * fs).sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
                 }
             }
@@ -428,27 +433,28 @@ fun MediaServerWidgetCard(viewModel: DashboardViewModel, isEditMode: Boolean) {
     val mediaToken by viewModel.mediaServerToken.collectAsState()
     val mediaStatus by viewModel.mediaPlaybackState.collectAsState()
     val mediaIsLoading by viewModel.mediaIsLoading.collectAsState()
+    val fs by viewModel.mediaFontScale.collectAsState()
 
     Card(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(4.dp),
+        modifier = Modifier.fillMaxSize().padding(4.dp),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (mediaStatus?.isOnline == true) Color(0xFF1B3D1B) else Color(0xFF4E1F1F)
-        )
+        colors = CardDefaults.cardColors(containerColor = if (mediaStatus?.isOnline == true) Color(0xFF1B3D1B) else Color(0xFF4E1F1F))
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Media: $mediaType", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Media: $mediaType", fontSize = (15 * fs).sp, fontWeight = FontWeight.Bold)
                 if (mediaIsLoading) CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
             }
             Spacer(modifier = Modifier.height(6.dp))
             if (isEditMode) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Size", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    listOf(0.8f to "S", 1.0f to "M", 1.3f to "L").forEach { (scale, label) ->
+                        Button(onClick = { viewModel.mediaFontScale.value = scale; viewModel.saveWidgetConfigurations() },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (fs == scale) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp), modifier = Modifier.height(28.dp)) { Text(label, fontSize = 11.sp) }
+                    }
+                }
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     listOf("Jellyfin", "Plex", "Emby").forEach { type ->
                         Button(onClick = { viewModel.mediaServerType.value = type; viewModel.saveWidgetConfigurations(); viewModel.refreshMediaServer() },
@@ -458,21 +464,18 @@ fun MediaServerWidgetCard(viewModel: DashboardViewModel, isEditMode: Boolean) {
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(value = mediaHost, onValueChange = { viewModel.mediaServerHost.value = it; viewModel.saveWidgetConfigurations() }, label = { Text("Host") }, modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = LocalTextStyle.current.copy(fontSize = 12.sp))
-                Spacer(modifier = Modifier.height(4.dp))
                 OutlinedTextField(value = mediaToken, onValueChange = { viewModel.mediaServerToken.value = it; viewModel.saveWidgetConfigurations() }, label = { Text("Token") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = LocalTextStyle.current.copy(fontSize = 12.sp))
+            } else if (mediaStatus?.isOnline == true) {
+                Text(mediaStatus?.statusString ?: "Healthy", fontSize = (11 * fs).sp)
+                Text("Streams: ${mediaStatus?.activeStreamsCount}", fontSize = (13 * fs).sp, fontWeight = FontWeight.Bold)
+                val used = mediaStatus?.storageUsedGb ?: 0.0
+                val total = mediaStatus?.storageTotalGb ?: 0.0
+                val percent = mediaStatus?.storagePercent ?: 0.0
+                Spacer(modifier = Modifier.height(4.dp))
+                LinearProgressIndicator(progress = (percent / 100.0).toFloat().coerceIn(0.0f, 1.0f), modifier = Modifier.fillMaxWidth().height(6.dp))
+                Text("${used.toInt()} / ${total.toInt()} GB", fontSize = (9 * fs).sp, color = Color.Gray)
             } else {
-                if (mediaStatus?.isOnline == true) {
-                    Text(mediaStatus?.statusString ?: "Healthy", fontSize = 11.sp)
-                    Text("Streams: ${mediaStatus?.activeStreamsCount}", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    val used = mediaStatus?.storageUsedGb ?: 0.0
-                    val total = mediaStatus?.storageTotalGb ?: 0.0
-                    val percent = mediaStatus?.storagePercent ?: 0.0
-                    Spacer(modifier = Modifier.height(4.dp))
-                    LinearProgressIndicator(progress = (percent / 100.0).toFloat().coerceIn(0.0f, 1.0f), modifier = Modifier.fillMaxWidth().height(6.dp))
-                    Text("${used.toInt()} / ${total.toInt()} GB", fontSize = 9.sp, color = Color.Gray)
-                } else {
-                    Text("Offline: ${mediaStatus?.error ?: "Connection failed"}", fontSize = 11.sp, color = Color(0xFFEF5350))
-                }
+                Text("Offline: ${mediaStatus?.error ?: "Connection failed"}", fontSize = (11 * fs).sp, color = Color(0xFFEF5350))
             }
         }
     }

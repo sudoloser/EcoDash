@@ -69,6 +69,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     val mediaPlaybackState = MutableStateFlow<MediaPlaybackStatus?>(null)
     val mediaIsLoading = MutableStateFlow(false)
 
+    val minecraftFontScale = MutableStateFlow(1.0f)
+    val networkFontScale = MutableStateFlow(1.0f)
+    val mediaFontScale = MutableStateFlow(1.0f)
+    val externalPluginFontScale = MutableStateFlow(1.0f)
+
     val activePluginsLayouts = MutableStateFlow<Map<String, Map<String, Any>>>(emptyMap())
     val pluginsVersion = MutableStateFlow(0)
 
@@ -100,6 +105,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         mediaServerType.value = prefs.getString("media_type", "Jellyfin") ?: "Jellyfin"
         mediaServerHost.value = prefs.getString("media_host", "http://127.0.0.1:7867") ?: "http://127.0.0.1:7867"
         mediaServerToken.value = prefs.getString("media_token", "") ?: ""
+
+        minecraftFontScale.value = prefs.getFloat("mc_font_scale", 1.0f)
+        networkFontScale.value = prefs.getFloat("net_font_scale", 1.0f)
+        mediaFontScale.value = prefs.getFloat("media_font_scale", 1.0f)
+        externalPluginFontScale.value = prefs.getFloat("plugin_font_scale", 1.0f)
     }
 
     fun saveWidgetConfigurations() {
@@ -112,6 +122,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             .putString("media_type", mediaServerType.value)
             .putString("media_host", mediaServerHost.value)
             .putString("media_token", mediaServerToken.value)
+            .putFloat("mc_font_scale", minecraftFontScale.value)
+            .putFloat("net_font_scale", networkFontScale.value)
+            .putFloat("media_font_scale", mediaFontScale.value)
+            .putFloat("plugin_font_scale", externalPluginFontScale.value)
             .apply()
     }
 
