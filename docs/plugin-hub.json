@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "plugins": [
+    {
+      "id": "sunset-media",
+      "name": "SunSet Media",
+      "author": "dev.sudoloser",
+      "description": "Monitors the SunSet Media Server dashboard with live uptime, active streams, and storage metrics.",
+      "download_url": "https://sudoloser.github.io/sunset/cdn/sunset-media.zip",
+      "version": "1.0.0",
+      "min_app_version": "1.0.0"
+    }
+  ]
+}
