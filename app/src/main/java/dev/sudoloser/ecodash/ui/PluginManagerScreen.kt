@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Store
@@ -55,6 +56,7 @@ fun PluginManagerScreen(
     var pluginsList by remember { mutableStateOf(pluginManager.getInstalledPlugins()) }
     var selectedPluginForConfig by remember { mutableStateOf<PluginMetadata?>(null) }
     var selectedTab by remember { mutableIntStateOf(0) }
+    var pluginToDelete by remember { mutableStateOf<PluginMetadata?>(null) }
 
     val pickZipLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -113,6 +115,7 @@ fun PluginManagerScreen(
                 viewModel = viewModel,
                 onPluginsChanged = { pluginsList = pluginManager.getInstalledPlugins() },
                 onConfigure = { selectedPluginForConfig = it },
+                onDelete = { pluginToDelete = it },
                 modifier = Modifier.padding(innerPadding)
             )
             1 -> PluginHubTab(
@@ -123,6 +126,32 @@ fun PluginManagerScreen(
                     viewModel.refreshPlugins()
                 },
                 modifier = Modifier.padding(innerPadding)
+            )
+        }
+
+        pluginToDelete?.let { plugin ->
+            AlertDialog(
+                onDismissRequest = { pluginToDelete = null },
+                title = { Text("Delete ${plugin.name}?") },
+                text = { Text("This will permanently remove the plugin and all its settings.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            pluginManager.deletePlugin(plugin.id)
+                            pluginToDelete = null
+                            pluginsList = pluginManager.getInstalledPlugins()
+                            viewModel.refreshPlugins()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF5350))
+                    ) {
+                        Text("Delete")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pluginToDelete = null }) {
+                        Text("Cancel")
+                    }
+                }
             )
         }
 
@@ -164,6 +193,7 @@ fun InstalledPluginsTab(
     viewModel: DashboardViewModel,
     onPluginsChanged: () -> Unit,
     onConfigure: (PluginMetadata) -> Unit,
+    onDelete: (PluginMetadata) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -199,14 +229,17 @@ fun InstalledPluginsTab(
             }
         } else {
             items(pluginsList) { plugin ->
+                val isExternal = plugin.id != "minecraft" && plugin.id != "media_server"
                 PluginItemCard(
                     plugin = plugin,
+                    isExternal = isExternal,
                     onToggleEnabled = { enabled ->
                         pluginManager.setPluginEnabled(plugin.id, enabled)
                         onPluginsChanged()
                         viewModel.refreshPlugins()
                     },
-                    onConfigure = { onConfigure(plugin) }
+                    onConfigure = { onConfigure(plugin) },
+                    onDelete = { onDelete(plugin) }
                 )
             }
         }
@@ -285,12 +318,12 @@ fun PluginHubTab(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE))
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF4E1F1F))
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Failed to load Plugin Hub", fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                        Text("Failed to load Plugin Hub", fontWeight = FontWeight.Bold, color = Color(0xFFEF5350))
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(errorMsg ?: "", fontSize = 13.sp, color = Color(0xFFC62828))
+                        Text(errorMsg ?: "", fontSize = 13.sp, color = Color(0xFFEF5350))
                     }
                 }
             }
@@ -391,8 +424,10 @@ private suspend fun downloadAndInstallPlugin(
 @Composable
 fun PluginItemCard(
     plugin: PluginMetadata,
+    isExternal: Boolean,
     onToggleEnabled: (Boolean) -> Unit,
-    onConfigure: () -> Unit
+    onConfigure: () -> Unit,
+    onDelete: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -413,6 +448,15 @@ fun PluginItemCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onConfigure) {
                     Icon(imageVector = Icons.Default.Settings, contentDescription = "Configure Settings")
+                }
+                if (isExternal) {
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete Plugin",
+                            tint = Color(0xFFEF5350)
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Switch(

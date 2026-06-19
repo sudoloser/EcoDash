@@ -104,7 +104,6 @@ fun DashboardGrid(
         }
         draggedIndex = -1
         dragOffsetY = 0f
-        items = allWidgetKeys
     }
 
     LazyVerticalGrid(
@@ -285,7 +284,7 @@ fun MinecraftWidgetCard(viewModel: DashboardViewModel, isEditMode: Boolean) {
             .padding(8.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (mcStatus?.isOnline == true) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
+            containerColor = if (mcStatus?.isOnline == true) Color(0xFF1B3D1B) else Color(0xFF4E1F1F)
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -299,7 +298,7 @@ fun MinecraftWidgetCard(viewModel: DashboardViewModel, isEditMode: Boolean) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 } else {
                     val statusText = if (mcStatus?.isOnline == true) "Online" else "Offline"
-                    val statusColor = if (mcStatus?.isOnline == true) Color(0xFF2E7D32) else Color(0xFFC62828)
+                    val statusColor = if (mcStatus?.isOnline == true) Color(0xFF81C784) else Color(0xFFEF5350)
                     Text(
                         text = statusText,
                         color = statusColor,
@@ -359,7 +358,7 @@ fun MinecraftWidgetCard(viewModel: DashboardViewModel, isEditMode: Boolean) {
                     Text("Version: ${mcStatus?.version}", fontSize = 12.sp, color = Color.Gray)
                 } else {
                     val errMsg = mcStatus?.error ?: "Cannot resolve connection parameters"
-                    Text("Server is unreachable: $errMsg", fontSize = 14.sp, color = Color(0xFFC62828))
+                    Text("Server is unreachable: $errMsg", fontSize = 14.sp, color = Color(0xFFEF5350))
                 }
             }
         }
@@ -452,7 +451,7 @@ fun MediaServerWidgetCard(viewModel: DashboardViewModel, isEditMode: Boolean) {
             .padding(8.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (mediaStatus?.isOnline == true) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)
+            containerColor = if (mediaStatus?.isOnline == true) Color(0xFF1B3D1B) else Color(0xFF4E1F1F)
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -545,7 +544,7 @@ fun MediaServerWidgetCard(viewModel: DashboardViewModel, isEditMode: Boolean) {
                     }
                 } else {
                     val errMsg = mediaStatus?.error ?: "Authentication error or container offline"
-                    Text("Connection failed: $errMsg", fontSize = 14.sp, color = Color(0xFFC62828))
+                    Text("Connection failed: $errMsg", fontSize = 14.sp, color = Color(0xFFEF5350))
                 }
             }
         }

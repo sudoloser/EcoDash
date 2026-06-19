@@ -211,4 +211,15 @@ class PluginManager(private val context: Context) {
     fun getPluginDirectory(id: String): File {
         return File(pluginsDir, id)
     }
+
+    fun deletePlugin(id: String) {
+        val dir = File(pluginsDir, id)
+        if (dir.exists()) {
+            dir.deleteRecursively()
+        }
+        sharedPrefs.edit()
+            .remove("enabled_$id")
+            .remove("settings_$id")
+            .apply()
+    }
 }

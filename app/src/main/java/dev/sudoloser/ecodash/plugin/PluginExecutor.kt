@@ -65,7 +65,7 @@ class PluginExecutor(private val context: Context, private val httpClient: OkHtt
                     val errorMsg = data["error"] as? String ?: "Connection failed"
                     return mapOf(
                         "type" to "Card",
-                        "backgroundColor" to "#FFCDD2",
+                        "backgroundColor" to "#4E1F1F",
                         "children" to listOf(
                             mapOf("type" to "Text", "text" to "SunSet Media", "style" to "Title"),
                             mapOf("type" to "Text", "text" to "Error: $errorMsg", "style" to "Body")
@@ -80,7 +80,7 @@ class PluginExecutor(private val context: Context, private val httpClient: OkHtt
                     val percentUsed = data["percent_used"] as? Double ?: 0.0
                     
                     val uptimeStr = "${uptime / 3600}h ${(uptime % 3600) / 60}m"
-                    val cardColor = if (status == "healthy") "#E8F5E9" else "#FFE0B2"
+                    val cardColor = if (status == "healthy") "#1B3D1B" else "#4E3A1F"
                     
                     return mapOf(
                         "type" to "Card",
