@@ -44,6 +44,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     val mediaIsLoading = MutableStateFlow(false)
 
     val activePluginsLayouts = MutableStateFlow<Map<String, Map<String, Any>>>(emptyMap())
+    val pluginsVersion = MutableStateFlow(0)
 
     private var refreshJob: Job? = null
 
@@ -267,6 +268,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
             activePluginsLayouts.value = results
+            pluginsVersion.value++
         }
     }
 
@@ -278,6 +280,12 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             viewModelScope.launch {
                 layoutStore.saveWidgetLayout(current)
             }
+        }
+    }
+
+    fun reorderWidgetFull(newLayout: List<String>) {
+        viewModelScope.launch {
+            layoutStore.saveWidgetLayout(newLayout)
         }
     }
 }

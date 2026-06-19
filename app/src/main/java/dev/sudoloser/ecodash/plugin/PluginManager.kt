@@ -27,6 +27,41 @@ class PluginManager(private val context: Context) {
     private val pluginsDir = File(context.filesDir, "plugins")
     private val sharedPrefs = context.getSharedPreferences("plugins_pref", Context.MODE_PRIVATE)
 
+    companion object {
+        val BUILT_IN_DEFS = listOf(
+            PluginMetadata(
+                id = "minecraft",
+                name = "Minecraft Server",
+                author = "EcoDash",
+                description = "Ping a Minecraft Java or Bedrock server and display MOTD, player count, and version.",
+                mainScript = "main.kts",
+                logicScript = "logic.kts",
+                settingsScript = "settings.kts",
+                isEnabled = false,
+                settingsValues = mutableMapOf(
+                    "server_ip" to "127.0.0.1",
+                    "server_port" to "25565",
+                    "is_bedrock" to "false"
+                )
+            ),
+            PluginMetadata(
+                id = "media_server",
+                name = "Media Server",
+                author = "EcoDash",
+                description = "Query Jellyfin, Plex, or Emby for server status, active streams, and disk usage.",
+                mainScript = "main.kts",
+                logicScript = "logic.kts",
+                settingsScript = "settings.kts",
+                isEnabled = false,
+                settingsValues = mutableMapOf(
+                    "server_type" to "Jellyfin",
+                    "server_host" to "http://127.0.0.1:7867",
+                    "auth_token" to ""
+                )
+            )
+        )
+    }
+
     init {
         if (!pluginsDir.exists()) {
             pluginsDir.mkdirs()
@@ -35,7 +70,21 @@ class PluginManager(private val context: Context) {
 
     fun getInstalledPlugins(): List<PluginMetadata> {
         val list = mutableListOf<PluginMetadata>()
-        val dirs = pluginsDir.listFiles { file -> file.isDirectory } ?: return emptyList()
+
+        for (builtIn in BUILT_IN_DEFS) {
+            val isEnabled = sharedPrefs.getBoolean("enabled_${builtIn.id}", false)
+            val settingsJson = sharedPrefs.getString("settings_${builtIn.id}", "{}")
+            val type = object : TypeToken<Map<String, String>>() {}.type
+            val settingsMap: Map<String, String> = gson.fromJson(settingsJson, type) ?: emptyMap()
+            list.add(
+                builtIn.copy(
+                    isEnabled = isEnabled,
+                    settingsValues = settingsMap.toMutableMap()
+                )
+            )
+        }
+
+        val dirs = pluginsDir.listFiles { file -> file.isDirectory } ?: return list
         
         for (dir in dirs) {
             val manifestFile = File(dir, "manifest.json")
@@ -53,7 +102,6 @@ class PluginManager(private val context: Context) {
 
                     val isEnabled = sharedPrefs.getBoolean("enabled_$id", true)
                     val settingsJson = sharedPrefs.getString("settings_$id", "{}")
-                    val type = object : TypeToken<Map<String, String>>() {}.type
                     val settingsMap: Map<String, String> = gson.fromJson(settingsJson, type) ?: emptyMap()
 
                     list.add(

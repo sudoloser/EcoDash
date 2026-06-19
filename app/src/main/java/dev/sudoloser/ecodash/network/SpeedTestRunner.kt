@@ -33,33 +33,42 @@ object SpeedTestRunner {
 
             val connectionState = when {
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> {
-                    val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                    val info = wifiManager.connectionInfo
-                    val ssid = info.ssid.trim('"')
-                    if (ssid == "<unknown ssid>") "Wi-Fi" else "Wi-Fi ($ssid)"
+                    try {
+                        val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                        val info = wifiManager.connectionInfo
+                        val ssid = info.ssid.trim('"')
+                        if (ssid == "<unknown ssid>" || ssid.contains("0x")) "Wi-Fi" else "Wi-Fi ($ssid)"
+                    } catch (_: Exception) {
+                        "Wi-Fi"
+                    }
                 }
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
                 caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Cellular"
                 else -> "Connected"
             }
 
-            val dhcp = (context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager).dhcpInfo
-            val gateway = if (dhcp != null && dhcp.gateway != 0) {
-                val ipVal = dhcp.gateway
-                String.format(
-                    "%d.%d.%d.%d",
-                    ipVal and 0xff,
-                    (ipVal ushr 8) and 0xff,
-                    (ipVal ushr 16) and 0xff,
-                    (ipVal ushr 24) and 0xff
-                )
-            } else {
+            val gateway = try {
+                val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                val dhcp = wifiManager.dhcpInfo
+                if (dhcp != null && dhcp.gateway != 0) {
+                    val ipVal = dhcp.gateway
+                    String.format(
+                        "%d.%d.%d.%d",
+                        ipVal and 0xff,
+                        (ipVal ushr 8) and 0xff,
+                        (ipVal ushr 16) and 0xff,
+                        (ipVal ushr 24) and 0xff
+                    )
+                } else {
+                    "192.168.1.1"
+                }
+            } catch (_: Exception) {
                 "192.168.1.1"
             }
 
             return Pair(connectionState, gateway)
         } catch (e: Exception) {
-            return Pair("Unknown Connection", "N/A")
+            return Pair("Unknown Connection", "192.168.1.1")
         }
     }
 

@@ -133,6 +133,21 @@ fun PluginManagerScreen(
                 onDismiss = { selectedPluginForConfig = null },
                 onSave = { updatedSettings ->
                     pluginManager.savePluginSettings(plugin.id, updatedSettings)
+                    when (plugin.id) {
+                        "minecraft" -> {
+                            viewModel.mcIp.value = updatedSettings["server_ip"] ?: "127.0.0.1"
+                            viewModel.mcPort.value = updatedSettings["server_port"] ?: "25565"
+                            viewModel.mcIsBedrock.value = updatedSettings["is_bedrock"]?.toBooleanStrictOrNull() ?: false
+                            viewModel.saveWidgetConfigurations()
+                        }
+                        "media_server" -> {
+                            viewModel.mediaServerType.value = updatedSettings["server_type"] ?: "Jellyfin"
+                            viewModel.mediaServerHost.value = updatedSettings["server_host"] ?: "http://127.0.0.1:7867"
+                            viewModel.mediaServerToken.value = updatedSettings["auth_token"] ?: ""
+                            viewModel.saveWidgetConfigurations()
+                            viewModel.refreshMediaServer()
+                        }
+                    }
                     pluginsList = pluginManager.getInstalledPlugins()
                     viewModel.refreshPlugins()
                     selectedPluginForConfig = null
@@ -409,6 +424,22 @@ fun PluginItemCard(
     }
 }
 
+private fun builtInFields(pluginId: String): List<Map<String, Any>> {
+    return when (pluginId) {
+        "minecraft" -> listOf(
+            mapOf("key" to "server_ip", "type" to "text", "label" to "Server IP", "defaultValue" to "127.0.0.1"),
+            mapOf("key" to "server_port", "type" to "text", "label" to "Server Port", "defaultValue" to "25565"),
+            mapOf("key" to "is_bedrock", "type" to "text", "label" to "Bedrock Edition (true/false)", "defaultValue" to "false")
+        )
+        "media_server" -> listOf(
+            mapOf("key" to "server_type", "type" to "text", "label" to "Platform Type", "defaultValue" to "Jellyfin"),
+            mapOf("key" to "server_host", "type" to "text", "label" to "Server Host URL", "defaultValue" to "http://127.0.0.1:7867"),
+            mapOf("key" to "auth_token", "type" to "password", "label" to "Auth Token / Api Key", "defaultValue" to "")
+        )
+        else -> emptyList()
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PluginConfigDialog(
@@ -418,20 +449,22 @@ fun PluginConfigDialog(
     onSave: (Map<String, String>) -> Unit
 ) {
     val context = LocalContext.current
-    val pluginDir = viewModel.pluginManager.getPluginDirectory(plugin.id)
-    val settingsFile = File(pluginDir, plugin.settingsScript)
+    val isBuiltIn = plugin.id == "minecraft" || plugin.id == "media_server"
 
-    val settingsMap = remember(settingsFile) {
-        try {
-            val executor = PluginExecutor(context, okhttp3.OkHttpClient())
-            executor.executeScript(settingsFile, emptyMap())
-        } catch (e: Exception) {
-            emptyMap<String, Any>()
+    val fields = remember(plugin) {
+        if (isBuiltIn) {
+            builtInFields(plugin.id)
+        } else {
+            val pluginDir = viewModel.pluginManager.getPluginDirectory(plugin.id)
+            val settingsFile = File(pluginDir, plugin.settingsScript)
+            try {
+                val executor = PluginExecutor(context, okhttp3.OkHttpClient())
+                val result = executor.executeScript(settingsFile, emptyMap())
+                result["fields"] as? List<Map<String, Any>> ?: emptyList()
+            } catch (e: Exception) {
+                emptyList()
+            }
         }
-    }
-
-    val fields = remember(settingsMap) {
-        settingsMap["fields"] as? List<Map<String, Any>> ?: emptyList()
     }
 
     val inputValues = remember(plugin) {
