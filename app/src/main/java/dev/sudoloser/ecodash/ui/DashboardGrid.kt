@@ -43,7 +43,7 @@ fun DashboardGrid(
     val activePlugins by viewModel.activePluginsLayouts.collectAsState()
     val pluginsVersion by viewModel.pluginsVersion.collectAsState()
     val gridPattern by viewModel.gridPattern.collectAsState()
-    var gridItems by viewModel.gridItems.collectAsState()
+    val gridItems by viewModel.gridItems.collectAsState()
 
     val installedPlugins = remember(pluginsVersion) { viewModel.pluginManager.getInstalledPlugins() }
     val enabledPluginIds = installedPlugins.filter { it.isEnabled }.map { it.id }
