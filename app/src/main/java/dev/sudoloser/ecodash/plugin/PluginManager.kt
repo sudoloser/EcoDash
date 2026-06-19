@@ -70,11 +70,11 @@ class PluginManager(private val context: Context) {
 
     fun getInstalledPlugins(): List<PluginMetadata> {
         val list = mutableListOf<PluginMetadata>()
+        val type = object : TypeToken<Map<String, String>>() {}.type
 
         for (builtIn in BUILT_IN_DEFS) {
             val isEnabled = sharedPrefs.getBoolean("enabled_${builtIn.id}", false)
             val settingsJson = sharedPrefs.getString("settings_${builtIn.id}", "{}")
-            val type = object : TypeToken<Map<String, String>>() {}.type
             val settingsMap: Map<String, String> = gson.fromJson(settingsJson, type) ?: emptyMap()
             list.add(
                 builtIn.copy(
