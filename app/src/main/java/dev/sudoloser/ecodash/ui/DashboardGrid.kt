@@ -2,8 +2,9 @@ package dev.sudoloser.ecodash.ui
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,8 +90,6 @@ fun DashboardGrid(
     val scrollState = rememberScrollState()
 
     var dragTargetId by remember { mutableStateOf<String?>(null) }
-    var dragStartCol by remember { mutableIntStateOf(0) }
-    var dragStartRow by remember { mutableIntStateOf(0) }
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
 
@@ -143,8 +142,6 @@ fun DashboardGrid(
                         modifier = itemModifier,
                         onDragStart = {
                             dragTargetId = item.id
-                            dragStartCol = item.col
-                            dragStartRow = item.row
                             dragOffsetX = 0f
                             dragOffsetY = 0f
                         },
@@ -154,15 +151,17 @@ fun DashboardGrid(
                             val threshold = cellWidth * 0.35f
                             val rowThreshold = cellHeight * 0.35f
                             val items = viewModel.gridItems.value
-                            val currentItem = items.find { it.id == item.id } ?: return@WidgetContainerGrid
-                            val colDelta = (dragOffsetX / threshold).roundToInt()
-                            val rowDelta = (dragOffsetY / rowThreshold).roundToInt()
-                            if (colDelta != 0 || rowDelta != 0) {
-                                val newCol = (currentItem.col + colDelta).coerceIn(0, columns - currentItem.colSpan)
-                                val newRow = (currentItem.row + rowDelta).coerceIn(0, 10)
-                                viewModel.moveGridItem(item.id, newCol, newRow)
-                                dragOffsetX = 0f
-                                dragOffsetY = 0f
+                            val currentItem = items.find { it.id == item.id }
+                            if (currentItem != null) {
+                                val colDelta = (dragOffsetX / threshold).roundToInt()
+                                val rowDelta = (dragOffsetY / rowThreshold).roundToInt()
+                                if (colDelta != 0 || rowDelta != 0) {
+                                    val newCol = (currentItem.col + colDelta).coerceIn(0, columns - currentItem.colSpan)
+                                    val newRow = (currentItem.row + rowDelta).coerceIn(0, 10)
+                                    viewModel.moveGridItem(item.id, newCol, newRow)
+                                    dragOffsetX = 0f
+                                    dragOffsetY = 0f
+                                }
                             }
                         },
                         onDragEnd = {
@@ -171,17 +170,19 @@ fun DashboardGrid(
                         onResizeStart = { vertical -> resizeVertical = vertical },
                         onResize = { delta ->
                             val items = viewModel.gridItems.value
-                            val currentItem = items.find { it.id == item.id } ?: return@WidgetContainerGrid
-                            if (resizeVertical) {
-                                val newRowSpan = (currentItem.rowSpan + (delta / cellHeight).roundToInt()).coerceIn(1, 4)
-                                if (newRowSpan != currentItem.rowSpan) {
-                                    viewModel.resizeGridItem(item.id, currentItem.colSpan, newRowSpan)
-                                }
-                            } else {
-                                val maxCols = columns - currentItem.col
-                                val newColSpan = (currentItem.colSpan + (delta / cellWidth).roundToInt()).coerceIn(1, maxCols)
-                                if (newColSpan != currentItem.colSpan) {
-                                    viewModel.resizeGridItem(item.id, newColSpan, currentItem.rowSpan)
+                            val currentItem = items.find { it.id == item.id }
+                            if (currentItem != null) {
+                                if (resizeVertical) {
+                                    val newRowSpan = (currentItem.rowSpan + (delta / cellHeight).roundToInt()).coerceIn(1, 4)
+                                    if (newRowSpan != currentItem.rowSpan) {
+                                        viewModel.resizeGridItem(item.id, currentItem.colSpan, newRowSpan)
+                                    }
+                                } else {
+                                    val maxCols = columns - currentItem.col
+                                    val newColSpan = (currentItem.colSpan + (delta / cellWidth).roundToInt()).coerceIn(1, maxCols)
+                                    if (newColSpan != currentItem.colSpan) {
+                                        viewModel.resizeGridItem(item.id, newColSpan, currentItem.rowSpan)
+                                    }
                                 }
                             }
                         },
@@ -355,26 +356,23 @@ fun WidgetContainerGrid(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(12.dp)
-                    .background(Color(0xFF64B5F6).copy(alpha = 0.6f), RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
+                    .height(24.dp)
+                    .background(Color(0xFF64B5F6).copy(alpha = 0.35f))
                     .pointerInput(Unit) {
-                        detectDragGestures(
+                        detectVerticalDragGestures(
                             onDragStart = { onResizeStart(true) },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                onResize(dragAmount.y)
-                            },
+                            onVerticalDrag = { _, dragAmount -> onResize(dragAmount) },
                             onDragEnd = onResizeEnd,
                             onDragCancel = onResizeEnd
                         )
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    Icons.Default.UnfoldMore,
-                    contentDescription = "Resize vertically",
-                    modifier = Modifier.size(14.dp),
-                    tint = Color.White
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .background(Color(0xFF64B5F6), RoundedCornerShape(2.dp))
                 )
             }
 
@@ -383,26 +381,23 @@ fun WidgetContainerGrid(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .fillMaxHeight()
-                    .width(12.dp)
-                    .background(Color(0xFF64B5F6).copy(alpha = 0.6f), RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp))
+                    .width(24.dp)
+                    .background(Color(0xFF64B5F6).copy(alpha = 0.35f))
                     .pointerInput(Unit) {
-                        detectDragGestures(
+                        detectHorizontalDragGestures(
                             onDragStart = { onResizeStart(false) },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                onResize(dragAmount.x)
-                            },
+                            onHorizontalDrag = { _, dragAmount -> onResize(dragAmount) },
                             onDragEnd = onResizeEnd,
                             onDragCancel = onResizeEnd
                         )
                     },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    Icons.Default.ChevronRight,
-                    contentDescription = "Resize horizontally",
-                    modifier = Modifier.size(14.dp),
-                    tint = Color.White
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(4.dp)
+                        .background(Color(0xFF64B5F6), RoundedCornerShape(2.dp))
                 )
             }
         }
