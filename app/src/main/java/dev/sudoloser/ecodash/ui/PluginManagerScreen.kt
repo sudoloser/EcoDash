@@ -402,7 +402,7 @@ fun PluginItemCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Switch(
                     checked = plugin.isEnabled,
-                    onValueChange = onToggleEnabled
+                    onCheckedChange = onToggleEnabled
                 )
             }
         }

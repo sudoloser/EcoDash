@@ -235,7 +235,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                             val mainFile = File(pluginDir, plugin.mainScript)
                             
                             if (logicFile.exists() && mainFile.exists()) {
-                                val variables = plugin.settingsValues.toMutableMap()
+                                val variables = mutableMapOf<String, Any>()
+                                variables.putAll(plugin.settingsValues)
                                 variables["httpClient"] = httpClient
                                 variables["context"] = context
                                 

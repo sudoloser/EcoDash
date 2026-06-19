@@ -20,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
@@ -276,7 +277,7 @@ fun MinecraftWidgetCard(viewModel: DashboardViewModel, isEditMode: Boolean) {
                     Text("Bedrock Edition (UDP)")
                     Switch(
                         checked = mcIsBedrock,
-                        onValueChange = {
+                        onCheckedChange = {
                             viewModel.mcIsBedrock.value = it
                             viewModel.saveWidgetConfigurations()
                             viewModel.refreshMinecraft()

@@ -20,21 +20,7 @@ object PluginUiRenderer {
             Text("No layout data available", color = MaterialTheme.colorScheme.error)
             return
         }
-
-        try {
-            RenderElement(layout)
-        } catch (e: Exception) {
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(8.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFCDD2))
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Rendering Error", fontWeight = FontWeight.Bold, color = Color(0xFFB71C1C))
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(e.message ?: "Failed to render dynamic widget components", fontSize = 12.sp, color = Color(0xFFB71C1C))
-                }
-            }
-        }
+        RenderElement(layout)
     }
 
     @Composable

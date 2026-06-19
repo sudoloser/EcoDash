@@ -3,8 +3,6 @@ package dev.sudoloser.ecodash.plugin
 import android.content.Context
 import okhttp3.OkHttpClient
 import java.io.File
-import javax.script.ScriptContext
-import javax.script.ScriptEngineManager
 
 class PluginExecutor(private val context: Context, private val httpClient: OkHttpClient) {
 
@@ -18,35 +16,7 @@ class PluginExecutor(private val context: Context, private val httpClient: OkHtt
     }
 
     fun executeScriptContent(scriptContent: String, variables: Map<String, Any>): Map<String, Any> {
-        try {
-            val manager = ScriptEngineManager()
-            val engine = manager.getEngineByExtension("kts")
-            
-            if (engine != null) {
-                val bindings = engine.createBindings()
-                bindings.put("context", context)
-                bindings.put("httpClient", httpClient)
-                bindings.put("bindings", variables)
-                
-                variables.forEach { (k, v) ->
-                    bindings.put(k, v)
-                }
-                
-                engine.setBindings(bindings, ScriptContext.ENGINE_SCOPE)
-                
-                @Suppress("UNCHECKED_CAST")
-                val result = engine.eval(scriptContent)
-                if (result is Map<*, *>) {
-                    return result as Map<String, Any>
-                } else {
-                    return mapOf("success" to false, "error" to "Script did not return a Map")
-                }
-            } else {
-                return executeFallback(scriptContent, variables)
-            }
-        } catch (e: Exception) {
-            return mapOf("success" to false, "error" to "Execution error: ${e.message}")
-        }
+        return executeFallback(scriptContent, variables)
     }
 
     private fun executeFallback(scriptContent: String, variables: Map<String, Any>): Map<String, Any> {
