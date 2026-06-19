@@ -44,6 +44,7 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             pickFirsts += "kotlin/internal/internal.kotlin_builtins"
+            pickFirsts += "kotlin/reflect/reflect.kotlin_builtins"
         }
     }
 }
@@ -69,7 +70,5 @@ dependencies {
     // GSON for layout and plugin configuration serialization
     implementation("com.google.code.gson:gson:2.11.0")
 
-    // Kotlin Scripting JSR223
-    implementation("org.jetbrains.kotlin:kotlin-scripting-jsr223:2.1.20")
-    implementation("org.jetbrains.kotlin:kotlin-scripting-jvm:2.1.20")
+
 }
