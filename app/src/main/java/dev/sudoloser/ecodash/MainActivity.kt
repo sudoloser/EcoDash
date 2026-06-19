@@ -1,20 +1,21 @@
 package dev.sudoloser.ecodash
 
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -22,6 +23,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.sudoloser.ecodash.ui.DashboardGrid
 import dev.sudoloser.ecodash.ui.DashboardViewModel
 import dev.sudoloser.ecodash.ui.PluginManagerScreen
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,15 +37,19 @@ class MainActivity : ComponentActivity() {
                     var currentScreen by remember { mutableStateOf("dashboard") }
                     val viewModel: DashboardViewModel = viewModel()
 
-                    if (currentScreen == "plugins") {
-                        PluginManagerScreen(
+                    when (currentScreen) {
+                        "plugins" -> PluginManagerScreen(
                             viewModel = viewModel,
                             onBack = { currentScreen = "dashboard" }
                         )
-                    } else {
-                        MainDashboardScreen(
+                        "settings" -> SettingsScreen(
                             viewModel = viewModel,
-                            onNavigateToPlugins = { currentScreen = "plugins" }
+                            onBack = { currentScreen = "dashboard" }
+                        )
+                        else -> MainDashboardScreen(
+                            viewModel = viewModel,
+                            onNavigateToPlugins = { currentScreen = "plugins" },
+                            onNavigateToSettings = { currentScreen = "settings" }
                         )
                     }
                 }
@@ -56,11 +62,10 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainDashboardScreen(
     viewModel: DashboardViewModel,
-    onNavigateToPlugins: () -> Unit
+    onNavigateToPlugins: () -> Unit,
+    onNavigateToSettings: () -> Unit
 ) {
     val isEditMode by viewModel.isEditMode.collectAsState()
-    val refreshInterval by viewModel.refreshInterval.collectAsState()
-    var showIntervalDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -84,7 +89,7 @@ fun MainDashboardScreen(
                         )
                     }
 
-                    IconButton(onClick = { showIntervalDialog = true }) {
+                    IconButton(onClick = onNavigateToSettings) {
                         Icon(imageVector = Icons.Default.Settings, contentDescription = "Settings")
                     }
 
@@ -100,31 +105,90 @@ fun MainDashboardScreen(
             onNavigateToPlugins = onNavigateToPlugins,
             modifier = Modifier.padding(innerPadding)
         )
-
-        if (showIntervalDialog) {
-            AutoRefreshIntervalDialog(
-                currentInterval = refreshInterval,
-                onDismiss = { showIntervalDialog = false },
-                onSelect = { intervalSec ->
-                    viewModel.setRefreshIntervalSec(intervalSec)
-                    showIntervalDialog = false
-                }
-            )
-        }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AutoRefreshIntervalDialog(
-    currentInterval: Int,
-    onDismiss: () -> Unit,
-    onSelect: (Int) -> Unit
+fun SettingsScreen(
+    viewModel: DashboardViewModel,
+    onBack: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Auto Refresh Interval") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val context = LocalContext.current
+    val refreshInterval by viewModel.refreshInterval.collectAsState()
+    var backupResult by remember { mutableStateOf<String?>(null) }
+    var restoring by remember { mutableStateOf(false) }
+
+    val saveBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val tempFile = File(context.cacheDir, "ecodash_backup_temp.zip")
+            viewModel.createBackupTo(tempFile) { ok, msg ->
+                if (ok) {
+                    try {
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            tempFile.inputStream().use { it.copyTo(out) }
+                        }
+                        tempFile.delete()
+                        backupResult = "Backup saved successfully!"
+                    } catch (e: Exception) {
+                        backupResult = "Failed to save backup: ${e.message}"
+                    }
+                } else {
+                    backupResult = msg
+                }
+            }
+        }
+    }
+
+    val restoreLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            restoring = true
+            val tempFile = File(context.cacheDir, "ecodash_restore_temp.zip")
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    tempFile.outputStream().use { input.copyTo(it) }
+                }
+                viewModel.restoreFromBackup(tempFile) { ok, msg ->
+                    tempFile.delete()
+                    restoring = false
+                    if (ok) {
+                        backupResult = "Restore successful! Dashboard refreshed."
+                    } else {
+                        backupResult = msg
+                    }
+                }
+            } catch (e: Exception) {
+                restoring = false
+                backupResult = "Restore failed: ${e.message}"
+            }
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            Text("Auto-Refresh Interval", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf(10, 30, 60, 300).forEach { seconds ->
                     val label = when (seconds) {
                         10 -> "10 seconds"
@@ -136,27 +200,62 @@ fun AutoRefreshIntervalDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onSelect(seconds) }
-                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                            .clickable { viewModel.setRefreshIntervalSec(seconds) }
+                            .padding(vertical = 10.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
-                            selected = currentInterval == seconds,
-                            onClick = { onSelect(seconds) }
+                            selected = refreshInterval == seconds,
+                            onClick = { viewModel.setRefreshIntervalSec(seconds) }
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(label, fontSize = 16.sp)
                     }
                 }
             }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close")
+
+            HorizontalDivider()
+
+            Text("Backup & Restore", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+
+            Button(
+                onClick = { saveBackupLauncher.launch("ecodash.backup") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.CloudDownload, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Create Backup")
             }
+
+            Button(
+                onClick = { restoreLauncher.launch(arrayOf("application/octet-stream", "*/*")) },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !restoring,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF5350))
+            ) {
+                Icon(Icons.Default.CloudUpload, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (restoring) "Restoring..." else "Restore from Backup")
+            }
+
+            backupResult?.let {
+                Text(
+                    text = it,
+                    color = if (it.startsWith("Backup saved") || it.startsWith("Restore successful"))
+                        Color(0xFF81C784) else Color(0xFFEF5350),
+                    fontSize = 14.sp
+                )
+            }
+
+            HorizontalDivider()
+
+            Text(
+                "Backup saves all dashboard settings, widget configs, plugin settings, and plugin files.",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-    )
+    }
 }
 
 @Composable

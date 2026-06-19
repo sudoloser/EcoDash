@@ -3,20 +3,44 @@ package dev.sudoloser.ecodash.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import dev.sudoloser.ecodash.data.LayoutStore
 import dev.sudoloser.ecodash.network.*
 import dev.sudoloser.ecodash.plugin.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import okhttp3.OkHttpClient
+import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
+
+data class GridItem(
+    val id: String,
+    val col: Int = 0,
+    val row: Int = 0,
+    val colSpan: Int = 1,
+    val rowSpan: Int = 1
+)
+
+enum class GridPattern(val columns: Int, val label: String) {
+    DENSE_2(2, "2 Columns"),
+    DENSE_3(3, "3 Columns"),
+    DENSE_4(4, "4 Columns"),
+    FOCUS_LEFT(3, "Focus Left"),
+    FOCUS_TOP(2, "Focus Top"),
+}
 
 class DashboardViewModel(application: Application) : AndroidViewModel(application) {
 
     private val context = application.applicationContext
     private val layoutStore = LayoutStore(context)
     private val httpClient = OkHttpClient.Builder().build()
-    
+    private val gson = Gson()
+
     val pluginManager = PluginManager(context)
     private val pluginExecutor = PluginExecutor(context, httpClient)
 
@@ -24,6 +48,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     val refreshInterval = layoutStore.refreshIntervalFlow.stateIn(viewModelScope, SharingStarted.Eagerly, 30)
 
     var isEditMode = MutableStateFlow(false)
+    var gridPattern = MutableStateFlow(GridPattern.DENSE_3)
+    var gridItems = MutableStateFlow<List<GridItem>>(emptyList())
 
     val mcIp = MutableStateFlow("127.0.0.1")
     val mcPort = MutableStateFlow("25565")
@@ -50,6 +76,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     init {
         loadWidgetConfigurations()
+        loadGridItems()
         startAutoRefresh()
         updateNetworkInfo()
     }
@@ -86,6 +113,59 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             .putString("media_host", mediaServerHost.value)
             .putString("media_token", mediaServerToken.value)
             .apply()
+    }
+
+    private fun loadGridItems() {
+        val prefs = context.getSharedPreferences("widget_grid", Application.MODE_PRIVATE)
+        val patternName = prefs.getString("pattern", GridPattern.DENSE_3.name) ?: GridPattern.DENSE_3.name
+        gridPattern.value = try { GridPattern.valueOf(patternName) } catch (_: Exception) { GridPattern.DENSE_3 }
+        val json = prefs.getString("items", null)
+        if (json != null) {
+            try {
+                val type = object : TypeToken<List<GridItem>>() {}.type
+                gridItems.value = gson.fromJson(json, type)
+            } catch (_: Exception) {
+                gridItems.value = generateDefaultItems()
+            }
+        } else {
+            gridItems.value = generateDefaultItems()
+        }
+    }
+
+    private fun saveGridItems() {
+        val prefs = context.getSharedPreferences("widget_grid", Application.MODE_PRIVATE)
+        prefs.edit()
+            .putString("pattern", gridPattern.value.name)
+            .putString("items", gson.toJson(gridItems.value))
+            .apply()
+    }
+
+    private fun generateDefaultItems(): List<GridItem> {
+        val ids = widgetLayout.value
+        val cols = gridPattern.value.columns
+        return ids.mapIndexed { i, id ->
+            GridItem(id = id, col = i % cols, row = i / cols)
+        }
+    }
+
+    fun moveGridItem(id: String, newCol: Int, newRow: Int) {
+        gridItems.value = gridItems.value.map {
+            if (it.id == id) it.copy(col = newCol, row = newRow) else it
+        }
+        saveGridItems()
+    }
+
+    fun resizeGridItem(id: String, colSpan: Int, rowSpan: Int) {
+        gridItems.value = gridItems.value.map {
+            if (it.id == id) it.copy(colSpan = colSpan.coerceIn(1, 4), rowSpan = rowSpan.coerceIn(1, 4)) else it
+        }
+        saveGridItems()
+    }
+
+    fun applyGridPattern(pattern: GridPattern) {
+        gridPattern.value = pattern
+        gridItems.value = generateDefaultItems()
+        saveGridItems()
     }
 
     fun setRefreshIntervalSec(seconds: Int) {
@@ -286,6 +366,177 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     fun reorderWidgetFull(newLayout: List<String>) {
         viewModelScope.launch {
             layoutStore.saveWidgetLayout(newLayout)
+        }
+    }
+
+    fun createBackupTo(destFile: File, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                FileOutputStream(destFile).use { fos ->
+                    ZipOutputStream(fos).use { zos ->
+                        val manifest = JSONObject()
+
+                        // --- Widget layout + refresh interval ---
+                        val layoutJson = JSONObject()
+                        layoutJson.put("widgetLayout", Gson().toJson(widgetLayout.value))
+                        layoutJson.put("refreshInterval", refreshInterval.value)
+                        manifest.put("dashboard", layoutJson)
+
+                        // --- Widget configs SharedPrefs ---
+                        val widgetPrefs = context.getSharedPreferences("widget_configs", Application.MODE_PRIVATE)
+                        val wc = JSONObject()
+                        for (key in widgetPrefs.all.keys) {
+                            wc.put(key, widgetPrefs.all[key].toString())
+                        }
+                        manifest.put("widgetConfigs", wc)
+
+                        // --- Plugin prefs ---
+                        val pluginPrefs = context.getSharedPreferences("plugins_pref", Application.MODE_PRIVATE)
+                        val pp = JSONObject()
+                        for (key in pluginPrefs.all.keys) {
+                            pp.put(key, pluginPrefs.all[key].toString())
+                        }
+                        manifest.put("pluginPrefs", pp)
+
+                        // --- Grid items + pattern ---
+                        val grid = JSONObject()
+                        grid.put("pattern", gridPattern.value.name)
+                        grid.put("items", gson.toJson(gridItems.value))
+                        manifest.put("gridLayout", grid)
+
+                        // Write manifest
+                        zos.putNextEntry(ZipEntry("ecodash.json"))
+                        zos.write(manifest.toString(2).toByteArray())
+                        zos.closeEntry()
+
+                        // --- Plugin files ---
+                        val pluginsDir = File(context.filesDir, "plugins")
+                        if (pluginsDir.exists()) {
+                            for (pluginDir in pluginsDir.listFiles() ?: emptyArray()) {
+                                addDirToZip(zos, pluginDir, "plugins/${pluginDir.name}")
+                            }
+                        }
+
+                        // Write backup marker
+                        zos.putNextEntry(ZipEntry("BACKUP"))
+                        zos.write("ecodash-v1".toByteArray())
+                        zos.closeEntry()
+                    }
+                }
+                onResult(true, "Backup saved to ${destFile.name}")
+            } catch (e: Exception) {
+                onResult(false, "Backup failed: ${e.message}")
+            }
+        }
+    }
+
+    fun restoreFromBackup(sourceFile: File, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                var manifestStr: String? = null
+                val pluginFiles = mutableMapOf<String, ByteArray>()
+
+                ZipInputStream(sourceFile.inputStream()).use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        val name = entry.name
+                        val data = zis.readBytes()
+                        when {
+                            name == "ecodash.json" -> manifestStr = String(data)
+                            name.startsWith("plugins/") && !name.endsWith("/") -> {
+                                val relPath = name.removePrefix("plugins/")
+                                pluginFiles[relPath] = data
+                            }
+                        }
+                        zis.closeEntry()
+                        entry = zis.nextEntry
+                    }
+                }
+
+                val manifest = manifestStr?.let { JSONObject(it) } ?: throw Exception("ecodash.json not found in backup")
+
+                // --- Restore widget configs ---
+                val wc = manifest.optJSONObject("widgetConfigs")
+                if (wc != null) {
+                    val prefs = context.getSharedPreferences("widget_configs", Application.MODE_PRIVATE)
+                    prefs.edit().clear().apply()
+                    for (key in wc.keys()) {
+                        prefs.edit().putString(key, wc.getString(key)).apply()
+                    }
+                }
+
+                // --- Restore plugin prefs ---
+                val pp = manifest.optJSONObject("pluginPrefs")
+                if (pp != null) {
+                    val prefs = context.getSharedPreferences("plugins_pref", Application.MODE_PRIVATE)
+                    prefs.edit().clear().apply()
+                    for (key in pp.keys()) {
+                        prefs.edit().putString(key, pp.getString(key)).apply()
+                    }
+                }
+
+                // --- Restore DataStore (widget layout + refresh interval) ---
+                val dash = manifest.optJSONObject("dashboard")
+                if (dash != null) {
+                    if (dash.has("widgetLayout")) {
+                        val type = object : TypeToken<List<String>>() {}.type
+                        val layout: List<String> = Gson().fromJson(dash.getString("widgetLayout"), type)
+                        layoutStore.saveWidgetLayout(layout)
+                    }
+                    if (dash.has("refreshInterval")) {
+                        layoutStore.saveRefreshInterval(dash.getInt("refreshInterval"))
+                    }
+                }
+
+                // --- Restore plugin files ---
+                val pluginsDir = File(context.filesDir, "plugins")
+                if (pluginFiles.isNotEmpty()) {
+                    if (pluginsDir.exists()) pluginsDir.deleteRecursively()
+                    pluginsDir.mkdirs()
+                    for ((relPath, data) in pluginFiles) {
+                        val outFile = File(pluginsDir, relPath)
+                        outFile.parentFile?.mkdirs()
+                        outFile.writeBytes(data)
+                    }
+                }
+
+                // --- Restore grid layout ---
+                val grid = manifest.optJSONObject("gridLayout")
+                if (grid != null) {
+                    try {
+                        gridPattern.value = GridPattern.valueOf(grid.optString("pattern", GridPattern.DENSE_3.name))
+                    } catch (_: Exception) {}
+                    val itemsJson = grid.optString("items", null)
+                    if (itemsJson != null) {
+                        try {
+                            val type = object : TypeToken<List<GridItem>>() {}.type
+                            gridItems.value = gson.fromJson(itemsJson, type)
+                        } catch (_: Exception) {}
+                    }
+                    saveGridItems()
+                }
+
+                // --- Reload everything ---
+                loadWidgetConfigurations()
+                loadGridItems()
+                startAutoRefresh()
+                onResult(true, "Backup restored successfully. Dashboard will refresh.")
+            } catch (e: Exception) {
+                onResult(false, "Restore failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun addDirToZip(zos: ZipOutputStream, dir: File, prefix: String) {
+        for (file in dir.listFiles() ?: emptyArray()) {
+            val entryName = "$prefix/${file.name}"
+            if (file.isDirectory) {
+                addDirToZip(zos, file, entryName)
+            } else {
+                zos.putNextEntry(ZipEntry(entryName))
+                file.inputStream().use { it.copyTo(zos) }
+                zos.closeEntry()
+            }
         }
     }
 }

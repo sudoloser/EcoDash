@@ -468,6 +468,36 @@ fun PluginItemCard(
     }
 }
 
+private fun parseSettingsFile(settingsFile: java.io.File): List<Map<String, Any>> {
+    return try {
+        val content = settingsFile.readText()
+        extractFieldsFromScript(content)
+    } catch (e: Exception) {
+        emptyList()
+    }
+}
+
+private fun extractFieldsFromScript(content: String): List<Map<String, Any>> {
+    val clean = content.replace("//.*".toRegex(), "").replace("\n", " ")
+    val fieldsMatch = Regex("""\"fields\"\s*to\s*listOf\s*\((.*?)\)\s*\)""",
+        RegexOption.DOT_MATCHES_ALL
+    ).find(clean)
+    val fieldsBody = fieldsMatch?.groupValues?.getOrNull(1) ?: return emptyList()
+    val results = mutableListOf<Map<String, Any>>()
+    val mapRegex = Regex("""mapOf\s*\((.*?)\)\s*""", RegexOption.DOT_MATCHES_ALL)
+    for (match in mapRegex.findAll(fieldsBody)) {
+        val body = match.groupValues[1]
+        val entryRegex = Regex(""""(\w+)"\s*to\s*"((?:[^"\\]|\\.)*)"""")
+        val entries = entryRegex.findAll(body)
+        val map = mutableMapOf<String, Any>()
+        for (e in entries) {
+            map[e.groupValues[1]] = e.groupValues[2]
+        }
+        if (map.isNotEmpty()) results.add(map)
+    }
+    return results
+}
+
 private fun builtInFields(pluginId: String): List<Map<String, Any>> {
     return when (pluginId) {
         "minecraft" -> listOf(
@@ -501,13 +531,7 @@ fun PluginConfigDialog(
         } else {
             val pluginDir = viewModel.pluginManager.getPluginDirectory(plugin.id)
             val settingsFile = File(pluginDir, plugin.settingsScript)
-            try {
-                val executor = PluginExecutor(context, okhttp3.OkHttpClient())
-                val result = executor.executeScript(settingsFile, emptyMap())
-                result["fields"] as? List<Map<String, Any>> ?: emptyList()
-            } catch (e: Exception) {
-                emptyList()
-            }
+            parseSettingsFile(settingsFile)
         }
     }
 

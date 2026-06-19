@@ -2,13 +2,13 @@ package dev.sudoloser.ecodash.ui
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -18,16 +18,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.zIndex
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import androidx.compose.ui.unit.sp
 import dev.sudoloser.ecodash.plugin.PluginUiRenderer
 
@@ -41,6 +42,8 @@ fun DashboardGrid(
     val isEditMode by viewModel.isEditMode.collectAsState()
     val activePlugins by viewModel.activePluginsLayouts.collectAsState()
     val pluginsVersion by viewModel.pluginsVersion.collectAsState()
+    val gridPattern by viewModel.gridPattern.collectAsState()
+    var gridItems by viewModel.gridItems.collectAsState()
 
     val installedPlugins = remember(pluginsVersion) { viewModel.pluginManager.getInstalledPlugins() }
     val enabledPluginIds = installedPlugins.filter { it.isEnabled }.map { it.id }
@@ -55,99 +58,187 @@ fun DashboardGrid(
         list.filter { it == "network" || enabledPluginIds.contains(it) }
     }
 
-    var items by remember { mutableStateOf(allWidgetKeys) }
-    var draggedIndex by remember { mutableIntStateOf(-1) }
-    var dragOffsetY by remember { mutableFloatStateOf(0f) }
-    var itemHeightPx by remember { mutableFloatStateOf(0f) }
-
+    // Ensure all widget keys have a GridItem
     LaunchedEffect(allWidgetKeys) {
-        if (draggedIndex == -1) {
-            items = allWidgetKeys
-        }
-    }
-
-    val onDragStart: (Int) -> Unit = { index ->
-        draggedIndex = index
-        items = allWidgetKeys
-    }
-
-    val onDrag: (Float) -> Unit = { deltaY ->
-        dragOffsetY += deltaY
-        val threshold = itemHeightPx * 0.4f
-        val currentIdx = draggedIndex
-
-        if (currentIdx != -1) {
-            if (dragOffsetY > threshold && currentIdx < items.size - 1) {
-                items = items.toMutableList().also { list ->
-                    val temp = list[currentIdx]
-                    list[currentIdx] = list[currentIdx + 1]
-                    list[currentIdx + 1] = temp
-                }
-                draggedIndex = currentIdx + 1
-                dragOffsetY -= threshold
-            } else if (dragOffsetY < -threshold && currentIdx > 0) {
-                items = items.toMutableList().also { list ->
-                    val temp = list[currentIdx]
-                    list[currentIdx] = list[currentIdx - 1]
-                    list[currentIdx - 1] = temp
-                }
-                draggedIndex = currentIdx - 1
-                dragOffsetY += threshold
+        val existing = gridItems.toMutableList()
+        var changed = false
+        val ids = existing.map { it.id }.toSet()
+        for (key in allWidgetKeys) {
+            if (key !in ids) {
+                val cols = gridPattern.columns
+                val row = existing.size / cols
+                val col = existing.size % cols
+                existing.add(GridItem(id = key, col = col, row = row))
+                changed = true
             }
         }
-    }
-
-    val onDragEnd: () -> Unit = {
-        val newLayout = items.filter { it in widgetLayout }
-        if (newLayout != widgetLayout) {
-            viewModel.reorderWidgetFull(newLayout)
+        // Remove items for keys no longer present
+        existing.removeAll { it.id !in allWidgetKeys }
+        if (changed || existing.size != gridItems.size) {
+            viewModel.gridItems.value = existing
         }
-        draggedIndex = -1
-        dragOffsetY = 0f
     }
 
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 350.dp),
+    val columns = gridPattern.columns
+    var containerWidthPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val gapPx = with(density) { 12.dp.toPx() }.toInt()
+    val cellWidth = if (containerWidthPx > 0) (containerWidthPx - gapPx * (columns - 1)) / columns else 200
+
+    // Scroll state for overflow
+    val scrollState = rememberScrollState()
+
+    var dragTargetId by remember { mutableStateOf<String?>(null) }
+    var dragStartCol by remember { mutableIntStateOf(0) }
+    var dragStartRow by remember { mutableIntStateOf(0) }
+    var dragOffsetX by remember { mutableFloatStateOf(0f) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+
+    var resizeVertical by remember { mutableStateOf(true) }
+
+    val headerHeightPx = with(density) { 40.dp.toPx() }.toInt()
+    val cellHeight = (cellWidth * 0.55f).toInt()
+
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .padding(8.dp),
-        contentPadding = PaddingValues(8.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(8.dp)
     ) {
-        itemsIndexed(items, key = { _, key -> key }) { index, key ->
-            WidgetContainer(
-                key = key,
-                index = index,
-                totalCount = items.size,
-                isEditMode = isEditMode,
-                isDragged = index == draggedIndex,
-                dragOffsetY = if (index == draggedIndex) dragOffsetY else 0f,
-                viewModel = viewModel,
-                activePlugins = activePlugins,
-                onDragStart = { onDragStart(index) },
-                onDrag = onDrag,
-                onDragEnd = onDragEnd,
-                onItemHeightKnown = { px -> if (itemHeightPx == 0f) itemHeightPx = px.toFloat() }
-            )
+        Column {
+            // Pattern selector in edit mode
+            if (isEditMode) {
+                PatternSelectorBar(
+                    current = gridPattern,
+                    onSelect = { viewModel.applyGridPattern(it) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .onSizeChanged { containerWidthPx = it.width }
+            ) {
+                // Render each widget at its grid position
+                gridItems.forEach { item ->
+                    val xPx = item.col * (cellWidth + gapPx)
+                    val yPx = item.row * (cellHeight + gapPx) + (if (isEditMode) 0 else 0)
+                    val wPx = item.colSpan * cellWidth + (item.colSpan - 1) * gapPx
+                    val hPx = item.rowSpan * cellHeight + (item.rowSpan - 1) * gapPx
+
+                    val isDragged = dragTargetId == item.id
+                    val offsetYExtra = if (isDragged) dragOffsetY else 0f
+                    val offsetXExtra = if (isDragged) dragOffsetX else 0f
+
+                    val itemModifier = Modifier
+                        .offset { IntOffset(xPx + offsetXExtra.roundToInt(), yPx + offsetYExtra.roundToInt()) }
+                        .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
+
+                    WidgetContainerGrid(
+                        key = item.id,
+                        isEditMode = isEditMode,
+                        viewModel = viewModel,
+                        activePlugins = activePlugins,
+                        modifier = itemModifier,
+                        onDragStart = {
+                            dragTargetId = item.id
+                            dragStartCol = item.col
+                            dragStartRow = item.row
+                            dragOffsetX = 0f
+                            dragOffsetY = 0f
+                        },
+                        onDrag = { dx, dy ->
+                            dragOffsetX += dx
+                            dragOffsetY += dy
+                            val threshold = cellWidth * 0.35f
+                            val rowThreshold = cellHeight * 0.35f
+                            val currentItem = gridItems.find { it.id == item.id } ?: return@WidgetContainerGrid
+                            val colDelta = (dragOffsetX / threshold).roundToInt()
+                            val rowDelta = (dragOffsetY / rowThreshold).roundToInt()
+                            if (colDelta != 0 || rowDelta != 0) {
+                                val newCol = (currentItem.col + colDelta).coerceIn(0, columns - currentItem.colSpan)
+                                val newRow = (currentItem.row + rowDelta).coerceIn(0, 10)
+                                viewModel.moveGridItem(item.id, newCol, newRow)
+                                dragOffsetX = 0f
+                                dragOffsetY = 0f
+                            }
+                        },
+                        onDragEnd = {
+                            dragTargetId = null
+                        },
+                        onResizeStart = { vertical -> resizeVertical = vertical },
+                        onResize = { delta ->
+                            val currentItem = gridItems.find { it.id == item.id } ?: return@WidgetContainerGrid
+                            if (resizeVertical) {
+                                val newRowSpan = (currentItem.rowSpan + (delta / cellHeight).roundToInt()).coerceIn(1, 4)
+                                if (newRowSpan != currentItem.rowSpan) {
+                                    viewModel.resizeGridItem(item.id, currentItem.colSpan, newRowSpan)
+                                }
+                            } else {
+                                val maxCols = columns - currentItem.col
+                                val newColSpan = (currentItem.colSpan + (delta / cellWidth).roundToInt()).coerceIn(1, maxCols)
+                                if (newColSpan != currentItem.colSpan) {
+                                    viewModel.resizeGridItem(item.id, newColSpan, currentItem.rowSpan)
+                                }
+                            }
+                        },
+                        onResizeEnd = { }
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-fun WidgetContainer(
+fun PatternSelectorBar(
+    current: GridPattern,
+    onSelect: (GridPattern) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = modifier.padding(bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Default.ViewModule, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Layout:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box {
+            AssistChip(
+                onClick = { expanded = true },
+                label = { Text(current.label, fontSize = 12.sp) },
+                trailingIcon = { Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(16.dp)) }
+            )
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                GridPattern.entries.forEach { pattern ->
+                    DropdownMenuItem(
+                        text = { Text(pattern.label) },
+                        onClick = { onSelect(pattern); expanded = false }
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        Text("Drag to move, drag bottom/right edge to resize", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+fun WidgetContainerGrid(
     key: String,
-    index: Int,
-    totalCount: Int,
     isEditMode: Boolean,
-    isDragged: Boolean,
-    dragOffsetY: Float,
     viewModel: DashboardViewModel,
     activePlugins: Map<String, Map<String, Any>>,
+    modifier: Modifier = Modifier,
     onDragStart: () -> Unit,
-    onDrag: (Float) -> Unit,
+    onDrag: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
-    onItemHeightKnown: (Int) -> Unit
+    onResizeStart: (Boolean) -> Unit,
+    onResize: (Float) -> Unit,
+    onResizeEnd: () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "shake")
     val rotation by infiniteTransition.animateFloat(
@@ -160,78 +251,56 @@ fun WidgetContainer(
         label = "shake_rotation"
     )
 
-    val containerModifier = Modifier
-        .fillMaxWidth()
-        .then(
-            if (isEditMode) {
-                Modifier
-                    .graphicsLayer(rotationZ = if (isDragged) 0f else rotation)
-                    .drawBehind {
-                        val stroke = Stroke(
-                            width = 2f,
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
-                        )
-                        drawRoundRect(color = Color.Gray, style = stroke)
-                    }
-            } else {
-                Modifier
+    val editBorderMod = if (isEditMode) {
+        Modifier
+            .drawBehind {
+                val stroke = Stroke(
+                    width = 2f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
+                )
+                drawRoundRect(color = Color.Gray, style = stroke)
             }
-        )
-        .onSizeChanged { size -> onItemHeightKnown(size.height) }
-        .then(
-            if (isDragged) {
-                Modifier
-                    .zIndex(1f)
-                    .graphicsLayer {
-                        translationY = dragOffsetY
-                        scaleX = 1.05f
-                        scaleY = 1.05f
-                        alpha = 0.9f
-                    }
-            } else {
-                Modifier
-            }
-        )
+    } else Modifier
 
-    Box(modifier = containerModifier) {
+    Box(
+        modifier = modifier.then(editBorderMod)
+    ) {
         Column {
+            // Edit mode header bar
             if (isEditMode) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
                             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
-                            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                            shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
                         )
-                        .padding(start = 4.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                        .pointerInput(Unit) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { onDragStart() },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    onDrag(dragAmount.x, dragAmount.y)
+                                },
+                                onDragEnd = onDragEnd,
+                                onDragCancel = onDragEnd
+                            )
+                        }
+                        .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .pointerInput(Unit) {
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = { onDragStart() },
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        onDrag(dragAmount.y)
-                                    },
-                                    onDragEnd = onDragEnd,
-                                    onDragCancel = onDragEnd
-                                )
-                            }
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Default.Menu,
-                            contentDescription = "Drag to reorder",
-                            modifier = Modifier.size(24.dp),
+                            imageVector = Icons.Default.DragHandle,
+                            contentDescription = "Drag to move",
+                            modifier = Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = key.replace("_", " "),
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -239,32 +308,100 @@ fun WidgetContainer(
                 }
             }
 
-            when (key) {
-                "minecraft" -> MinecraftWidgetCard(viewModel, isEditMode)
-                "network" -> NetworkWidgetCard(viewModel, isEditMode)
-                "media_server" -> MediaServerWidgetCard(viewModel, isEditMode)
-                else -> {
-                    val uiLayout = activePlugins[key]
-                    if (uiLayout != null) {
-                        PluginUiRenderer.Render(uiLayout)
-                    } else {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(8.dp),
-                            shape = RoundedCornerShape(16.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+            // Widget content
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        rotationZ = if (isEditMode && rotation != 0f) rotation else 0f
+                    }
+            ) {
+                when (key) {
+                    "minecraft" -> MinecraftWidgetCard(viewModel, isEditMode)
+                    "network" -> NetworkWidgetCard(viewModel, isEditMode)
+                    "media_server" -> MediaServerWidgetCard(viewModel, isEditMode)
+                    else -> {
+                        val uiLayout = activePlugins[key]
+                        if (uiLayout != null) {
+                            PluginUiRenderer.Render(uiLayout)
+                        } else {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(4.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                             ) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text("Executing Plugin Script: $key...", fontSize = 12.sp)
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text("Executing $key...", fontSize = 10.sp)
+                                    }
+                                }
                             }
                         }
                     }
                 }
+            }
+        }
+
+        // Resize handles in edit mode
+        if (isEditMode) {
+            // Bottom handle (vertical resize)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(12.dp)
+                    .background(Color(0xFF64B5F6).copy(alpha = 0.6f), RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragStart = { onResizeStart(true) },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                onResize(dragAmount.y)
+                            },
+                            onDragEnd = onResizeEnd,
+                            onDragCancel = onResizeEnd
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.UnfoldMore,
+                    contentDescription = "Resize vertically",
+                    modifier = Modifier.size(14.dp),
+                    tint = Color.White
+                )
+            }
+
+            // Right handle (horizontal resize)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .width(12.dp)
+                    .background(Color(0xFF64B5F6).copy(alpha = 0.6f), RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp))
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragStart = { onResizeStart(false) },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                onResize(dragAmount.x)
+                            },
+                            onDragEnd = onResizeEnd,
+                            onDragCancel = onResizeEnd
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = "Resize horizontally",
+                    modifier = Modifier.size(14.dp),
+                    tint = Color.White
+                )
             }
         }
     }
@@ -280,85 +417,45 @@ fun MinecraftWidgetCard(viewModel: DashboardViewModel, isEditMode: Boolean) {
 
     Card(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(8.dp),
-        shape = RoundedCornerShape(16.dp),
+            .fillMaxSize()
+            .padding(4.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (mcStatus?.isOnline == true) Color(0xFF1B3D1B) else Color(0xFF4E1F1F)
         )
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Minecraft Status", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Minecraft", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 if (mcIsLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                 } else {
                     val statusText = if (mcStatus?.isOnline == true) "Online" else "Offline"
                     val statusColor = if (mcStatus?.isOnline == true) Color(0xFF81C784) else Color(0xFFEF5350)
-                    Text(
-                        text = statusText,
-                        color = statusColor,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
+                    Text(text = statusText, color = statusColor, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
+            Spacer(modifier = Modifier.height(6.dp))
             if (isEditMode) {
-                OutlinedTextField(
-                    value = mcIp,
-                    onValueChange = {
-                        viewModel.mcIp.value = it
-                        viewModel.saveWidgetConfigurations()
-                    },
-                    label = { Text("Server IP") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = mcPort,
-                    onValueChange = {
-                        viewModel.mcPort.value = it
-                        viewModel.saveWidgetConfigurations()
-                    },
-                    label = { Text("Server Port") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Bedrock Edition (UDP)")
-                    Switch(
-                        checked = mcIsBedrock,
-                        onCheckedChange = {
-                            viewModel.mcIsBedrock.value = it
-                            viewModel.saveWidgetConfigurations()
-                            viewModel.refreshMinecraft()
-                        }
-                    )
+                OutlinedTextField(value = mcIp, onValueChange = { viewModel.mcIp.value = it; viewModel.saveWidgetConfigurations() }, label = { Text("IP") }, modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = LocalTextStyle.current.copy(fontSize = 12.sp))
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(value = mcPort, onValueChange = { viewModel.mcPort.value = it; viewModel.saveWidgetConfigurations() }, label = { Text("Port") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = LocalTextStyle.current.copy(fontSize = 12.sp))
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Bedrock", fontSize = 11.sp)
+                    Switch(checked = mcIsBedrock, onCheckedChange = { viewModel.mcIsBedrock.value = it; viewModel.saveWidgetConfigurations(); viewModel.refreshMinecraft() }, modifier = Modifier.height(24.dp))
                 }
             } else {
                 if (mcStatus?.isOnline == true) {
-                    Text("MOTD: ${mcStatus?.motd}", fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Players: ${mcStatus?.onlinePlayers} / ${mcStatus?.maxPlayers}", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Version: ${mcStatus?.version}", fontSize = 12.sp, color = Color.Gray)
+                    Text("${mcStatus?.onlinePlayers}/${mcStatus?.maxPlayers}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("MOTD: ${mcStatus?.motd}", fontSize = 10.sp, color = Color.Gray, maxLines = 2)
                 } else {
                     val errMsg = mcStatus?.error ?: "Cannot resolve connection parameters"
-                    Text("Server is unreachable: $errMsg", fontSize = 14.sp, color = Color(0xFFEF5350))
+                    Text("Server is unreachable: $errMsg", fontSize = 11.sp, color = Color(0xFFEF5350))
                 }
             }
         }
@@ -375,61 +472,30 @@ fun NetworkWidgetCard(viewModel: DashboardViewModel, isEditMode: Boolean) {
 
     Card(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(8.dp),
-        shape = RoundedCornerShape(16.dp),
+            .fillMaxSize()
+            .padding(4.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Network Speed Test", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(8.dp))
-
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text("Network", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(6.dp))
             if (isEditMode) {
-                OutlinedTextField(
-                    value = speedTestUrl,
-                    onValueChange = {
-                        viewModel.speedTestServerUrl.value = it
-                        viewModel.saveWidgetConfigurations()
-                    },
-                    label = { Text("Speed Test companion URL") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
+                OutlinedTextField(value = speedTestUrl, onValueChange = { viewModel.speedTestServerUrl.value = it; viewModel.saveWidgetConfigurations() }, label = { Text("Speed Test URL") }, modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = LocalTextStyle.current.copy(fontSize = 12.sp))
             } else {
-                Text("Connection: $connectionState", fontSize = 14.sp)
-                Text("Gateway: $networkGateway", fontSize = 14.sp)
-
-                Spacer(modifier = Modifier.height(8.dp))
-
+                Text("$connectionState | $networkGateway", fontSize = 11.sp)
+                Spacer(modifier = Modifier.height(6.dp))
                 if (speedTestState.state != "IDLE" && speedTestState.state != "COMPLETE" && speedTestState.state != "FAILED") {
-                    Column {
-                        Text("Running speed test: ${speedTestState.state}...", fontSize = 12.sp)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        LinearProgressIndicator(
-                            progress = speedTestState.progress,
-                            modifier = Modifier.fillMaxWidth().height(6.dp)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Down: ${formatBps(speedTestState.downloadSpeed)}", fontSize = 12.sp)
-                            Text("Up: ${formatBps(speedTestState.uploadSpeed)}", fontSize = 12.sp)
-                        }
-                    }
+                    LinearProgressIndicator(progress = speedTestState.progress, modifier = Modifier.fillMaxWidth().height(4.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Down: ${formatBps(speedTestState.downloadSpeed)}  Up: ${formatBps(speedTestState.uploadSpeed)}", fontSize = 10.sp)
                 } else {
-                    Button(
-                        onClick = { viewModel.runSpeedTest() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Run Speed Test")
-                    }
+                    Button(onClick = { viewModel.runSpeedTest() }, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(8.dp)) { Text("Run", fontSize = 11.sp) }
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
                 if (speedTestHistory.isNotEmpty()) {
-                    Text("History Logs", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                    speedTestHistory.forEach { log ->
-                        Text("• ${log.second}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    speedTestHistory.take(2).forEach { log ->
+                        Text(log.second, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
                 }
             }
@@ -447,104 +513,47 @@ fun MediaServerWidgetCard(viewModel: DashboardViewModel, isEditMode: Boolean) {
 
     Card(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(8.dp),
-        shape = RoundedCornerShape(16.dp),
+            .fillMaxSize()
+            .padding(4.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (mediaStatus?.isOnline == true) Color(0xFF1B3D1B) else Color(0xFF4E1F1F)
         )
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Media Server: $mediaType", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                if (mediaIsLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                }
+                Text("Media: $mediaType", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                if (mediaIsLoading) CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
+            Spacer(modifier = Modifier.height(6.dp))
             if (isEditMode) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Platform Type")
-                    Row {
-                        listOf("Jellyfin", "Plex", "Emby").forEach { type ->
-                            Button(
-                                onClick = {
-                                    viewModel.mediaServerType.value = type
-                                    viewModel.saveWidgetConfigurations()
-                                    viewModel.refreshMediaServer()
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (mediaType == type) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
-                                ),
-                                modifier = Modifier.padding(2.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Text(type, fontSize = 10.sp)
-                            }
-                        }
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    listOf("Jellyfin", "Plex", "Emby").forEach { type ->
+                        Button(onClick = { viewModel.mediaServerType.value = type; viewModel.saveWidgetConfigurations(); viewModel.refreshMediaServer() },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (mediaType == type) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary),
+                            modifier = Modifier.padding(2.dp), contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)) { Text(type, fontSize = 9.sp) }
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = mediaHost,
-                    onValueChange = {
-                        viewModel.mediaServerHost.value = it
-                        viewModel.saveWidgetConfigurations()
-                    },
-                    label = { Text("Server Host URL") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = mediaToken,
-                    onValueChange = {
-                        viewModel.mediaServerToken.value = it
-                        viewModel.saveWidgetConfigurations()
-                    },
-                    label = { Text("Auth Token / Api Key") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(value = mediaHost, onValueChange = { viewModel.mediaServerHost.value = it; viewModel.saveWidgetConfigurations() }, label = { Text("Host") }, modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = LocalTextStyle.current.copy(fontSize = 12.sp))
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(value = mediaToken, onValueChange = { viewModel.mediaServerToken.value = it; viewModel.saveWidgetConfigurations() }, label = { Text("Token") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = LocalTextStyle.current.copy(fontSize = 12.sp))
             } else {
                 if (mediaStatus?.isOnline == true) {
-                    Text(mediaStatus?.statusString ?: "Uptime: healthy", fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Active Streams: ${mediaStatus?.activeStreamsCount}", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-
+                    Text(mediaStatus?.statusString ?: "Healthy", fontSize = 11.sp)
+                    Text("Streams: ${mediaStatus?.activeStreamsCount}", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     val used = mediaStatus?.storageUsedGb ?: 0.0
                     val total = mediaStatus?.storageTotalGb ?: 0.0
                     val percent = mediaStatus?.storagePercent ?: 0.0
-
-                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Disk Space Info", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            Text(String.format("%.1f GB / %.1f GB (%.1f%%)", used, total, percent), fontSize = 12.sp)
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        LinearProgressIndicator(
-                            progress = (percent / 100.0).toFloat().coerceIn(0.0f, 1.0f),
-                            modifier = Modifier.fillMaxWidth().height(8.dp),
-                            strokeCap = StrokeCap.Round
-                        )
-                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LinearProgressIndicator(progress = (percent / 100.0).toFloat().coerceIn(0.0f, 1.0f), modifier = Modifier.fillMaxWidth().height(6.dp))
+                    Text("${used.toInt()} / ${total.toInt()} GB", fontSize = 9.sp, color = Color.Gray)
                 } else {
-                    val errMsg = mediaStatus?.error ?: "Authentication error or container offline"
-                    Text("Connection failed: $errMsg", fontSize = 14.sp, color = Color(0xFFEF5350))
+                    Text("Offline: ${mediaStatus?.error ?: "Connection failed"}", fontSize = 11.sp, color = Color(0xFFEF5350))
                 }
             }
         }
