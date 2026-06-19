@@ -20,18 +20,19 @@ class PluginExecutor(private val context: Context, private val httpClient: OkHtt
     }
 
     private fun executeFallback(scriptContent: String, variables: Map<String, Any>): Map<String, Any> {
+        val pluginId = variables["pluginId"] as? String ?: ""
         val result = mutableMapOf<String, Any>()
         try {
             if (scriptContent.contains("/api/v1/dashboard/status")) {
                 val serverIp = variables["server_ip"] as? String ?: "10.0.2.2"
                 val serverPort = variables["server_port"] as? String ?: "7867"
                 val authToken = variables["auth_token"] as? String ?: ""
-                
+
                 val request = okhttp3.Request.Builder()
                     .url("http://$serverIp:$serverPort/api/v1/dashboard/status")
                     .header("Authorization", "Bearer $authToken")
                     .build()
-                
+
                 httpClient.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         val bodyString = response.body?.string() ?: ""
@@ -40,7 +41,7 @@ class PluginExecutor(private val context: Context, private val httpClient: OkHtt
                         result["uptime_seconds"] = json.optLong("uptime_seconds", 0L)
                         result["active_streams"] = json.optInt("active_streams", 0)
                         result["transcode_tasks"] = json.optInt("transcode_tasks", 0)
-                        
+
                         val storage = json.optJSONObject("storage")
                         if (storage != null) {
                             result["used_gb"] = storage.optDouble("used_gb", 0.0)
@@ -57,10 +58,11 @@ class PluginExecutor(private val context: Context, private val httpClient: OkHtt
                         result["error"] = "HTTP error code: ${response.code}"
                     }
                 }
-            } else if (scriptContent.contains("val data = bindings[\"data\"]") || scriptContent.contains("data[\"success\"]")) {
+            } else if ((pluginId == "sunset-media" || pluginId == "media_server") &&
+                       (scriptContent.contains("val data = bindings[\"data\"]") || scriptContent.contains("data[\"success\"]"))) {
                 val data = variables["data"] as? Map<String, Any> ?: emptyMap()
                 val success = data["success"] as? Boolean ?: false
-                
+
                 if (!success) {
                     val errorMsg = data["error"] as? String ?: "Connection failed"
                     return mapOf(
@@ -78,10 +80,10 @@ class PluginExecutor(private val context: Context, private val httpClient: OkHtt
                     val usedGb = data["used_gb"] as? Double ?: 0.0
                     val totalGb = data["total_gb"] as? Double ?: 0.0
                     val percentUsed = data["percent_used"] as? Double ?: 0.0
-                    
+
                     val uptimeStr = "${uptime / 3600}h ${(uptime % 3600) / 60}m"
                     val cardColor = if (status == "healthy") "#1B3D1B" else "#4E3A1F"
-                    
+
                     return mapOf(
                         "type" to "Card",
                         "backgroundColor" to cardColor,

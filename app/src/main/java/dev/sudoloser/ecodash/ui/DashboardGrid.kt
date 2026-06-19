@@ -153,7 +153,8 @@ fun DashboardGrid(
                             dragOffsetY += dy
                             val threshold = cellWidth * 0.35f
                             val rowThreshold = cellHeight * 0.35f
-                            val currentItem = gridItems.find { it.id == item.id } ?: return@WidgetContainerGrid
+                            val items = viewModel.gridItems.value
+                            val currentItem = items.find { it.id == item.id } ?: return@WidgetContainerGrid
                             val colDelta = (dragOffsetX / threshold).roundToInt()
                             val rowDelta = (dragOffsetY / rowThreshold).roundToInt()
                             if (colDelta != 0 || rowDelta != 0) {
@@ -169,7 +170,8 @@ fun DashboardGrid(
                         },
                         onResizeStart = { vertical -> resizeVertical = vertical },
                         onResize = { delta ->
-                            val currentItem = gridItems.find { it.id == item.id } ?: return@WidgetContainerGrid
+                            val items = viewModel.gridItems.value
+                            val currentItem = items.find { it.id == item.id } ?: return@WidgetContainerGrid
                             if (resizeVertical) {
                                 val newRowSpan = (currentItem.rowSpan + (delta / cellHeight).roundToInt()).coerceIn(1, 4)
                                 if (newRowSpan != currentItem.rowSpan) {

@@ -320,12 +320,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                                 variables.putAll(plugin.settingsValues)
                                 variables["httpClient"] = httpClient
                                 variables["context"] = context
-                                
+                                variables["pluginId"] = plugin.id
+
                                 val evaluationResult = pluginExecutor.executeScript(logicFile, variables)
-                                
+
                                 val uiVariables = mapOf<String, Any>(
                                     "data" to evaluationResult,
-                                    "context" to context
+                                    "context" to context,
+                                    "pluginId" to plugin.id
                                 )
                                 val uiLayout = pluginExecutor.executeScript(mainFile, uiVariables)
                                 synchronized(results) {
