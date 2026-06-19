@@ -3,8 +3,6 @@ package dev.sudoloser.ecodash.ui
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -93,8 +91,6 @@ fun DashboardGrid(
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
 
-    var resizeVertical by remember { mutableStateOf(true) }
-
     val headerHeightPx = with(density) { 40.dp.toPx() }.toInt()
     val cellHeight = (cellWidth * 0.55f).toInt()
 
@@ -166,27 +162,7 @@ fun DashboardGrid(
                         },
                         onDragEnd = {
                             dragTargetId = null
-                        },
-                        onResizeStart = { vertical -> resizeVertical = vertical },
-                        onResize = { delta ->
-                            val items = viewModel.gridItems.value
-                            val currentItem = items.find { it.id == item.id }
-                            if (currentItem != null) {
-                                if (resizeVertical) {
-                                    val newRowSpan = (currentItem.rowSpan + (delta / cellHeight).roundToInt()).coerceIn(1, 4)
-                                    if (newRowSpan != currentItem.rowSpan) {
-                                        viewModel.resizeGridItem(item.id, currentItem.colSpan, newRowSpan)
-                                    }
-                                } else {
-                                    val maxCols = columns - currentItem.col
-                                    val newColSpan = (currentItem.colSpan + (delta / cellWidth).roundToInt()).coerceIn(1, maxCols)
-                                    if (newColSpan != currentItem.colSpan) {
-                                        viewModel.resizeGridItem(item.id, newColSpan, currentItem.rowSpan)
-                                    }
-                                }
-                            }
-                        },
-                        onResizeEnd = { }
+                        }
                     )
                 }
             }
@@ -225,7 +201,7 @@ fun PatternSelectorBar(
             }
         }
         Spacer(modifier = Modifier.weight(1f))
-        Text("Drag to move, drag bottom/right edge to resize", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Long-press drag handle to move", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -238,10 +214,7 @@ fun WidgetContainerGrid(
     modifier: Modifier = Modifier,
     onDragStart: () -> Unit,
     onDrag: (Float, Float) -> Unit,
-    onDragEnd: () -> Unit,
-    onResizeStart: (Boolean) -> Unit,
-    onResize: (Float) -> Unit,
-    onResizeEnd: () -> Unit
+    onDragEnd: () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "shake")
     val rotation by infiniteTransition.animateFloat(
@@ -349,58 +322,6 @@ fun WidgetContainerGrid(
             }
         }
 
-        // Resize handles in edit mode
-        if (isEditMode) {
-            // Bottom handle (vertical resize)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(24.dp)
-                    .background(Color(0xFF64B5F6).copy(alpha = 0.35f))
-                    .pointerInput(Unit) {
-                        detectVerticalDragGestures(
-                            onDragStart = { onResizeStart(true) },
-                            onVerticalDrag = { _, dragAmount -> onResize(dragAmount) },
-                            onDragEnd = onResizeEnd,
-                            onDragCancel = onResizeEnd
-                        )
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .background(Color(0xFF64B5F6), RoundedCornerShape(2.dp))
-                )
-            }
-
-            // Right handle (horizontal resize)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .fillMaxHeight()
-                    .width(24.dp)
-                    .background(Color(0xFF64B5F6).copy(alpha = 0.35f))
-                    .pointerInput(Unit) {
-                        detectHorizontalDragGestures(
-                            onDragStart = { onResizeStart(false) },
-                            onHorizontalDrag = { _, dragAmount -> onResize(dragAmount) },
-                            onDragEnd = onResizeEnd,
-                            onDragCancel = onResizeEnd
-                        )
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(4.dp)
-                        .background(Color(0xFF64B5F6), RoundedCornerShape(2.dp))
-                )
-            }
-        }
     }
 }
 

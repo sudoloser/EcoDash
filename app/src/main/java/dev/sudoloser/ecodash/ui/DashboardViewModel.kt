@@ -155,13 +155,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         saveGridItems()
     }
 
-    fun resizeGridItem(id: String, colSpan: Int, rowSpan: Int) {
-        gridItems.value = gridItems.value.map {
-            if (it.id == id) it.copy(colSpan = colSpan.coerceIn(1, 4), rowSpan = rowSpan.coerceIn(1, 4)) else it
-        }
-        saveGridItems()
-    }
-
     fun applyGridPattern(pattern: GridPattern) {
         gridPattern.value = pattern
         gridItems.value = generateDefaultItems()
