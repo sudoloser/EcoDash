@@ -75,24 +75,25 @@ fun DashboardGrid(
         dragOffsetY += deltaY
         val threshold = itemHeightPx * 0.4f
         val currentIdx = draggedIndex
-        if (currentIdx == -1) return@onDrag
 
-        if (dragOffsetY > threshold && currentIdx < items.size - 1) {
-            items = items.toMutableList().also { list ->
-                val temp = list[currentIdx]
-                list[currentIdx] = list[currentIdx + 1]
-                list[currentIdx + 1] = temp
+        if (currentIdx != -1) {
+            if (dragOffsetY > threshold && currentIdx < items.size - 1) {
+                items = items.toMutableList().also { list ->
+                    val temp = list[currentIdx]
+                    list[currentIdx] = list[currentIdx + 1]
+                    list[currentIdx + 1] = temp
+                }
+                draggedIndex = currentIdx + 1
+                dragOffsetY -= threshold
+            } else if (dragOffsetY < -threshold && currentIdx > 0) {
+                items = items.toMutableList().also { list ->
+                    val temp = list[currentIdx]
+                    list[currentIdx] = list[currentIdx - 1]
+                    list[currentIdx - 1] = temp
+                }
+                draggedIndex = currentIdx - 1
+                dragOffsetY += threshold
             }
-            draggedIndex = currentIdx + 1
-            dragOffsetY -= threshold
-        } else if (dragOffsetY < -threshold && currentIdx > 0) {
-            items = items.toMutableList().also { list ->
-                val temp = list[currentIdx]
-                list[currentIdx] = list[currentIdx - 1]
-                list[currentIdx - 1] = temp
-            }
-            draggedIndex = currentIdx - 1
-            dragOffsetY += threshold
         }
     }
 
@@ -177,7 +178,6 @@ fun WidgetContainer(
                 Modifier
             }
         )
-        .animateItemPlacement()
         .onSizeChanged { size -> onItemHeightKnown(size.height) }
         .then(
             if (isDragged) {
